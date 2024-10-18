@@ -1,128 +1,91 @@
-from flask import jsonify, request, abort
-from app import app, db
-from models import Cocktail, Ingredient, CocktailIngredient, Review, User
+from flask import Blueprint, request, jsonify
+from models import User, Cocktail, Ingredient, CocktailIngredient, Review
+from extensions import db
 
-@app.route('/', methods=['GET'])
-def home():
-    return jsonify({"message": "Welcome to the Cocktail API"})
+api_bp = Blueprint('api', __name__)
 
-@app.route('/api/cocktails', methods=['GET'])
+# Create a User
+@api_bp.route('/users', methods=['POST'])
+def create_user():
+    data = request.get_json()
+    new_user = User(username=data['username'], email=data['email'])
+    db.session.add(new_user)
+    db.session.commit()
+    return jsonify({'id': new_user.id, 'username': new_user.username, 'email': new_user.email}), 201
+
+# Get all Users
+@api_bp.route('/users', methods=['GET'])
+def get_users():
+    users = User.query.all()
+    return jsonify([{'id': user.id, 'username': user.username, 'email': user.email} for user in users])
+
+# Create a Cocktail
+@api_bp.route('/cocktails', methods=['POST'])
+def create_cocktail():
+    data = request.get_json()
+    new_cocktail = Cocktail(
+        name=data['name'],
+        image_url=data.get('image_url'),
+        instructions=data.get('instructions'),
+        glass_type=data.get('glass_type')
+    )
+    db.session.add(new_cocktail)
+    db.session.commit()
+    return jsonify({'id': new_cocktail.id, 'name': new_cocktail.name}), 201
+
+# Get all Cocktails
+@api_bp.route('/cocktails', methods=['GET'])
 def get_cocktails():
     cocktails = Cocktail.query.all()
     return jsonify([{
-        'id': c.id,
-        'name': c.name,
-        'image_url': c.image_url,
-        'instructions': c.instructions,
-        'glass_type': c.glass_type,
-        'ingredients': [{
-            'name': ci.ingredient.name,
-            'amount': ci.amount
-        } for ci in c.ingredients]
-    } for c in cocktails])
-
-@app.route('/api/cocktails/<int:id>', methods=['GET'])
-def get_cocktail(id):
-    cocktail = Cocktail.query.get_or_404(id)
-    return jsonify({
         'id': cocktail.id,
         'name': cocktail.name,
         'image_url': cocktail.image_url,
         'instructions': cocktail.instructions,
-        'glass_type': cocktail.glass_type,
-        'ingredients': [{
-            'name': ci.ingredient.name,
-            'amount': ci.amount
-        } for ci in cocktail.ingredients],
-        'reviews': [{
-            'id': r.id,
-            'content': r.content,
-            'rating': r.rating,
-            'user': r.user.username
-        } for r in cocktail.reviews]
-    })
+        'glass_type': cocktail.glass_type
+    } for cocktail in cocktails])
 
-@app.route('/api/cocktails/<int:id>/reviews', methods=['GET'])
-def get_cocktail_reviews(id):
-    cocktail = Cocktail.query.get_or_404(id)
-    return jsonify([{
-        'id': r.id,
-        'content': r.content,
-        'rating': r.rating,
-        'user': r.user.username
-    } for r in cocktail.reviews])
-
-@app.route('/api/cocktails/<int:id>/reviews', methods=['POST'])
-def add_review(id):
-    data = request.json
-    cocktail = Cocktail.query.get_or_404(id)
-    user = User.query.filter_by(username=data['username']).first()
-    if not user:
-        user = User(username=data['username'], email=f"{data['username']}@example.com")
-        db.session.add(user)
-    
-    review = Review(
+# Create a Review
+@api_bp.route('/reviews', methods=['POST'])
+def create_review():
+    data = request.get_json()
+    new_review = Review(
         content=data['content'],
         rating=data['rating'],
-        user=user,
-        cocktail=cocktail
+        user_id=data['user_id'],
+        cocktail_id=data['cocktail_id']
     )
-    db.session.add(review)
+    db.session.add(new_review)
     db.session.commit()
-    return jsonify({'message': 'Review added successfully', 'id': review.id}), 201
+    return jsonify({'id': new_review.id, 'content': new_review.content, 'rating': new_review.rating}), 201
 
-@app.route('/api/reviews/<int:id>', methods=['PUT'])
-def update_review(id):
-    review = Review.query.get_or_404(id)
-    data = request.json
-    
-    if 'content' in data:
-        review.content = data['content']
-    if 'rating' in data:
-        review.rating = data['rating']
-    
-    db.session.commit()
-    return jsonify({'message': 'Review updated successfully'})
-
-@app.route('/api/reviews/<int:id>', methods=['DELETE'])
-def delete_review(id):
-    review = Review.query.get_or_404(id)
-    db.session.delete(review)
-    db.session.commit()
-    return jsonify({'message': 'Review deleted successfully'})
-
-@app.route('/api/users', methods=['POST'])
-def create_user():
-    data = request.json
-    if User.query.filter_by(username=data['username']).first():
-        return jsonify({'message': 'Username already exists'}), 400
-    if User.query.filter_by(email=data['email']).first():
-        return jsonify({'message': 'Email already exists'}), 400
-    
-    user = User(username=data['username'], email=data['email'])
-    db.session.add(user)
-    db.session.commit()
-    return jsonify({'message': 'User created successfully', 'id': user.id}), 201
-
-@app.route('/api/users/<int:id>/reviews', methods=['GET'])
-def get_user_reviews(id):
-    user = User.query.get_or_404(id)
+# Get all Reviews for a specific Cocktail
+@api_bp.route('/cocktails/<int:cocktail_id>/reviews', methods=['GET'])
+def get_reviews_for_cocktail(cocktail_id):
+    reviews = Review.query.filter_by(cocktail_id=cocktail_id).all()
     return jsonify([{
-        'id': r.id,
-        'content': r.content,
-        'rating': r.rating,
-        'cocktail': r.cocktail.name
-    } for r in user.reviews])
+        'id': review.id,
+        'content': review.content,
+        'rating': review.rating,
+        'user_id': review.user_id
+    } for review in reviews])
 
-# Error handling
-@app.errorhandler(404)
-def not_found(error):
-    return jsonify({'message': 'Resource not found'}), 404
+# Update a Cocktail
+@api_bp.route('/cocktails/<int:id>', methods=['PUT'])
+def update_cocktail(id):
+    data = request.get_json()
+    cocktail = Cocktail.query.get_or_404(id)
+    cocktail.name = data.get('name', cocktail.name)
+    cocktail.image_url = data.get('image_url', cocktail.image_url)
+    cocktail.instructions = data.get('instructions', cocktail.instructions)
+    cocktail.glass_type = data.get('glass_type', cocktail.glass_type)
+    db.session.commit()
+    return jsonify({'id': cocktail.id, 'name': cocktail.name}), 200
 
-@app.errorhandler(400)
-def bad_request(error):
-    return jsonify({'message': 'Bad request'}), 400
-
-@app.errorhandler(500)
-def internal_server_error(error):
-    return jsonify({'message': 'Internal server error'}), 500
+# Delete a Cocktail
+@api_bp.route('/cocktails/<int:id>', methods=['DELETE'])
+def delete_cocktail(id):
+    cocktail = Cocktail.query.get_or_404(id)
+    db.session.delete(cocktail)
+    db.session.commit()
+    return jsonify({'message': 'Cocktail deleted successfully'}), 200
